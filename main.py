@@ -1,171 +1,135 @@
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
-import time
-import os
-from bs4 import BeautifulSoup
+import requests
 import pandas as pd
+import time
+from bs4 import BeautifulSoup
+from tqdm import tqdm
+import math
 
-def fetch_and_save_html(url, filename):
-    # Set up Chrome options
-    chrome_options = Options()
-    chrome_options.add_argument("--headless")  # Run in headless mode (optional)
-    chrome_options.add_argument("--disable-gpu")  # Disable GPU acceleration (optional)
-    chrome_options.add_argument("--no-sandbox")  # Bypass OS security model (optional)
-    chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3")
+# URL of the page to parse
+main_url = "http://dnb.com/business-directory/industry-analysis.agriculture_forestry_fishing_and_hunting.html"
+headers = {"User-Agent": "Mozilla/5.0"}
 
-    # Set up the Chrome driver
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
-    
-    # Open the URL in the browser
-    driver.get(url)
-    
-    # Wait for the page to load
-    time.sleep(5)  # Adjust the sleep time if necessary
-    
-    # Get the page source (HTML content)
-    html_content = driver.page_source
-    
-    # Save the HTML content to a local file
-    with open(filename, 'w', encoding='utf-8') as file:
-        file.write(html_content)
-    
-    print(f"HTML content saved to {filename}")
-    
-    # Close the browser
-    driver.quit()
+# Parse the main page to extract all country links and numbers of companies
+response = requests.get(main_url, headers=headers)
+if response.status_code == 200:
+    soup = BeautifulSoup(response.text, "html.parser")
 
-def extract_company_name(soup):
-    
-    # Find the span element with the data-tracking-name attribute
-    company_name_span = soup.find('span', {'data-tracking-name': 'Doing Business As:'})
-    
-    # Extract and return the text content of the span element
-    if company_name_span:
-        return company_name_span.text.strip()
+    # Extract all matching elements
+    country_elements = soup.select("div.col-md-6.col-xs-6.data a")
+    if country_elements:
+        overall_data = []
+
+        for country_element in country_elements:
+            # Extract URL and number of companies
+            country_url = "https://www.dnb.com" + country_element["href"]
+            number_countries_element = country_element.select_one("span.number-countries")
+            number_countries = int(
+                number_countries_element.text.strip("()").replace(",", "").replace("\n", "").replace("(", "").replace(")", "")
+            )
+
+            # Extract country name
+            country_name = country_element.text.strip()
+
+            print(f"Country: {country_name}, URL: {country_url}, Number of companies: {number_countries}")
+
+            # Append data to the list
+            overall_data.append({"country_name": country_name, "url": country_url, "number_countries": number_countries})
+
+        # Save data to an Excel sheet under "Overall Data"
+        overall_df = pd.DataFrame(overall_data)
+        with pd.ExcelWriter("business_data.xlsx", engine="openpyxl") as writer:
+            overall_df.to_excel(writer, sheet_name="Overall Data", index=False)
+
+        print("Data saved to 'business_data.xlsx'.")
     else:
-        return None
+        print("No matching elements found.")
+else:
+    print(f"Failed to fetch the main page. Status code: {response.status_code}")
 
-def extract_company_website(soup):
-    
-    # Find the span element with the name attribute set to "company_website"
-    company_website_span = soup.find('span', {'name': 'company_website'})
-    
-    # Extract and return the href attribute of the a tag within the span element
-    if company_website_span:
-        a_tag = company_website_span.find('a')
-        if a_tag and 'href' in a_tag.attrs:
-            return a_tag['href']
-    return None
+# List to store business details
+business_data = []
 
-def extract_key_principal(soup):
-    
-    # Find the span element with the name attribute set to "key_principal"
-    key_principal_span = soup.find('span', {'name': 'key_principal'})
-    
-    # Extract and return the text content of the first span element within key_principal_span
-    if key_principal_span:
-        inner_span = key_principal_span.find('span')
-        if inner_span:
-            return inner_span.contents[0].strip()
-    return None
+# Function to extract key person name & website from a company details page
+def scrape_company_details(company_url):
+    response = requests.get(company_url, headers=headers)
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text, "html.parser")
 
-def extract_company_address(soup):
-    
-    # Find the span element with the name attribute set to "company_address"
-    company_address_span = soup.find('span', {'name': 'company_address'})
-    
-    # Extract and return the text content of the a tag within the span element
-    if company_address_span:
-        a_tag = company_address_span.find('a')
-        if a_tag:
-            return a_tag.text.strip()
-    return None
+        # Extract Key Person Name
+        key_person_element = soup.select_one(
+            "span.company_data_point[name='key_principal'] span"
+        )
+        key_person = (
+            key_person_element.text.strip() if key_person_element else "N/A"
+        )
+        key_person = key_person.replace("See more contacts", "").strip()
 
-def extract_maps_location(soup):
-    
-    # Find the span element with the name attribute set to "company_address"
-    company_address_span = soup.find('span', {'name': 'company_address'})
-    
-    # Extract and return the href attribute of the a tag within the span element
-    if company_address_span:
-        a_tag = company_address_span.find('a')
-        if a_tag and 'href' in a_tag.attrs:
-            return a_tag['href']
-    return None
+        # Extract Website
+        website_element = soup.select_one(
+            "span.company_profile_overview_underline_links a.ext-class"
+        )
+        website = website_element["href"].strip() if website_element else "N/A"
 
-def extract_industry_list(soup):
-    
-    # Find the span element with the name attribute set to "industry_links"
-    industry_links_span = soup.find('span', {'name': 'industry_links'})
-    
-    # Extract and return the text content of each a tag and inner span within the span element
-    industries = []
-    if industry_links_span:
-        for span in industry_links_span.find_all('span'):
-            a_tag = span.find('a')
-            if a_tag:
-                industries.append(a_tag.text.strip())
-            else:
-                industries.append(span.text.strip())
-    return industries
+        return key_person, website
+    return "N/A", "N/A"
 
-def extract_other_industries_list(soup):
-   
-    # Find the span element with the name attribute set to "other_industries_links"
-    other_industries_span = soup.find('span', {'name': 'other_industries_links'})
-    
-    # Extract and return the text content of each a tag within the span element
-    industries = []
-    if other_industries_span:
-        for a_tag in other_industries_span.find_all('a'):
-            industries.append(a_tag.text.strip())
-    return industries
+# Function to scrape a single page
+def scrape_page(url):
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text, "html.parser")
 
-def extract_data_from_html(html_content):
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    # Extract data using the appropriate functions
-    company_name = extract_company_name(soup)
-    key_principal = extract_key_principal(soup)
-    company_website = extract_company_website(soup)
-    company_address = extract_company_address(soup)
-    maps_location = extract_maps_location(soup)
-    industry_list = extract_industry_list(soup)
-    other_industries_list = extract_other_industries_list(soup)
-    
-    return {
-        'Company Name': company_name,
-        'Key Principal': key_principal,
-        'Company Website': company_website,
-        'Company Address': company_address,
-        'Maps Location': maps_location,
-        'Industry List': industry_list,
-        'Other Industries List': other_industries_list
-    }
+        # Extract company names and details page URLs
+        business_elements = soup.select("div.col-md-12.data div.col-md-6 a")
 
-def store_data_in_excel(data_list, filename='company_data.xlsx'):
-    # Create a DataFrame
-    df = pd.DataFrame(data_list)
-    
-    # Write the DataFrame to an Excel file
-    df.to_excel(filename, index=False)
+        for business in tqdm(business_elements):
+            business_name = business.text.strip()
+            business_url = "https://www.dnb.com" + business["href"]
 
-# Directory containing the HTML files
-directory = 'Company'
+            if business_name and business_url:
+                key_person, website = scrape_company_details(business_url)
 
-# List to store the extracted data
-data_list = []
+                business_data.append(
+                    {
+                        "Business Name": business_name,
+                        "Details URL": business_url,
+                        "Key Person": key_person,
+                        "Website": website,
+                    }
+                )
+                time.sleep(1)  # Delay to prevent getting blocked
 
-# Traverse the directory and parse each HTML file
-for filename in os.listdir(directory):
-    if filename.endswith('.html'):
-        filepath = os.path.join(directory, filename)
-        with open(filepath, 'r', encoding='utf-8') as file:
-            html_content = file.read()
-            data = extract_data_from_html(html_content)
-            data_list.append(data)
+# Iterate through all country URLs and scrape data
+if overall_data:
+    with pd.ExcelWriter("business_data_with_countries.xlsx", engine="openpyxl") as writer:
+        for country in overall_data:
+            country_name = country["country_name"]
+            base_url = country["url"]
+            total_pages = math.ceil(country["number_countries"] / 50)
 
-# Store the data in an Excel file
-store_data_in_excel(data_list)
+            print(f"Scraping data for {country_name}...")
+
+            # Clear business_data for each country
+            business_data = []
+
+            # Scrape first page
+            print(f"Scraping page 1 for {country_name}...")
+            scrape_page(base_url)
+
+            # Scrape remaining pages
+            for page in range(2, total_pages + 1):
+                next_page_url = f"{base_url}?page={page}"
+                print(f"Scraping page {page} for {country_name}...")
+                scrape_page(next_page_url)
+                time.sleep(2)  # Add delay to avoid getting blocked
+
+            # Save data for the current country to a new sheet
+            if business_data:
+                df = pd.DataFrame(business_data)
+                df.to_excel(writer, sheet_name=country_name[:31], index=False)  # Sheet name max length is 31 characters
+
+            print(f"Data for {country_name} saved.")
+
+    print("Scraping completed. Data saved in 'business_data_with_countries.xlsx'.")
+else:
+    print("No country data found. Skipping scraping.")

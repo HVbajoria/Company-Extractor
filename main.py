@@ -28,8 +28,11 @@ if response.status_code == 200:
             )
 
             # Extract country name
-            country_name = country_element.text.strip()
-
+            country_name = country_element.text.strip().split('\n')[0]
+            print(country_name)
+            # parsed_country_name = ["China", "Brazil", "Poland", "Italy", "United States", "Argentina", "Ukraine", "Kazakhstan", "France", "Germany", "India", "Sweden", "South Africa", "Russian Federation", "Finland", "Spain", "Belgium", "Norway", "Colombia", "United Kingdom", "Hungary", "Romania", "Australia", "Republic Of Korea", "Portugal", "Netherlands", "Chile", "Canada", "Denmark", "Peru", "Czech Republic", "Vietnam", "Japan", "Morocco", "Latvia", "New Zealand", "Malaysia", "Slovakia", "Bulgaria", "Thailand", "Taiwan", "Bosnia-Herzegovina", "Moldova", "Algeria", "Austria", "Switzerland", "Croatia", "Serbia", "Kyrgyzstan", "Estonia", "Israel", "Ireland", "Belarus"]
+            if country_name == 'Ecuador':
+                break
             print(f"Country: {country_name}, URL: {country_url}, Number of companies: {number_countries}")
 
             # Append data to the list
@@ -37,7 +40,7 @@ if response.status_code == 200:
 
         # Save data to an Excel sheet under "Overall Data"
         overall_df = pd.DataFrame(overall_data)
-        with pd.ExcelWriter("business_data.xlsx", engine="openpyxl") as writer:
+        with pd.ExcelWriter("/kagglebusiness_data.xlsx", engine="openpyxl") as writer:
             overall_df.to_excel(writer, sheet_name="Overall Data", index=False)
 
         print("Data saved to 'business_data.xlsx'.")
@@ -104,8 +107,11 @@ if overall_data:
     with pd.ExcelWriter("business_data_with_countries.xlsx", engine="openpyxl") as writer:
         for country in overall_data:
             country_name = country["country_name"]
+            
             base_url = country["url"]
             total_pages = math.ceil(country["number_countries"] / 50)
+            if total_pages > 0:
+                total_pages = 10
 
             print(f"Scraping data for {country_name}...")
 
